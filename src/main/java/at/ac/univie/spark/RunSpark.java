@@ -31,12 +31,21 @@ class RunSpark{
 		String AWS_ACCESS_KEY_ID = "";
 		String AWS_SECRET_ACCESS_KEY = "";
 
-		System.out.println(">>>>>>>>>>>>>>>>>> Hello from YESSpark! <<<<<<<<<<<<<<<<<<<<<<<<<");
+		System.out.println(">>>>>>>>>>>>>>>>>> Hello from Spark! <<<<<<<<<<<<<<<<<<<<<<<<<");
+		String path = System.getProperty("user.dir");
 
 //  ...example accessing S3:
 
 
 //    clusterMembers.saveAsTextFile("s3n://" + AWS_ACCESS_KEY_ID + ":" + AWS_SECRET_ACCESS_KEY + "@qltrail-lab-265-1488270472/result");
+		
+		//1.3 Count Labels
+		JavaRDD<String> textFile = sc.textFile(path+"//src//main//resources//kddcup.data.label.corrected");
+		JavaPairRDD<String, Integer> counts = textFile
+		    .flatMap(s -> Arrays.asList(s.split(" ")).iterator())
+		    .mapToPair(word -> new Tuple2<>(word, 1))
+		    .reduceByKey((a, b) -> a + b);
+		counts.coalesce(1).saveAsTextFile(path+"//src//main//resources//LabelCount//");
 
 		sc.stop();
 		
