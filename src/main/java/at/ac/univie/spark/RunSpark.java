@@ -2,8 +2,14 @@ package at.ac.univie.spark;
 
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.FlatMapFunction;
+import org.apache.spark.api.java.function.Function;
 import org.apache.spark.api.java.function.Function2;
 import org.apache.spark.api.java.function.PairFunction;
+import org.apache.spark.mllib.clustering.KMeans;
+import org.apache.spark.mllib.clustering.KMeansModel;
+import org.apache.spark.mllib.linalg.Vector;
+import org.apache.spark.mllib.linalg.Vectors;
+
 import scala.Tuple2;
 
 import org.apache.spark.api.java.JavaRDD;
@@ -22,30 +28,52 @@ class RunSpark{
 	public static void main(String [] args)
 	{
 		// on AWS:
-		// SparkConf conf = new SparkConf().setAppName("GRUPPEXX");
+		// SparkConf conf = new SparkConf().setAppName("GRUPPE01");
+//		String AWS_ACCESS_KEY_ID = "";
+//		String AWS_SECRET_ACCESS_KEY = "";
 
 		// local environment (laptop/PC)
-		SparkConf conf = new SparkConf().setAppName("GRUPPEXX").setMaster("local[*]");
+		SparkConf conf = new SparkConf().setAppName("GRUPPE01").setMaster("local[*]");
+		String path = System.getProperty("user.dir");
 
 		JavaSparkContext sc = new JavaSparkContext(conf);
-		String AWS_ACCESS_KEY_ID = "";
-		String AWS_SECRET_ACCESS_KEY = "";
-
 		System.out.println(">>>>>>>>>>>>>>>>>> Hello from Spark! <<<<<<<<<<<<<<<<<<<<<<<<<");
-		String path = System.getProperty("user.dir");
+		
 
 //  ...example accessing S3:
 
 
 //    clusterMembers.saveAsTextFile("s3n://" + AWS_ACCESS_KEY_ID + ":" + AWS_SECRET_ACCESS_KEY + "@qltrail-lab-265-1488270472/result");
 		
-		//1.3 Count Labels
-		JavaRDD<String> textFile = sc.textFile(path+"//src//main//resources//kddcup.data.label.corrected");
-		JavaPairRDD<String, Integer> counts = textFile
-		    .flatMap(s -> Arrays.asList(s.split(" ")).iterator())
-		    .mapToPair(word -> new Tuple2<>(word, 1))
-		    .reduceByKey((a, b) -> a + b);
-		counts.coalesce(1).saveAsTextFile(path+"//src//main//resources//LabelCount//");
+		//1.2 List the clustering labels (last column) and their distinct counts
+//		JavaRDD<String> textFile = sc.textFile(path+"//src//main//resources//kddcup.data.label.corrected");
+//		JavaPairRDD<String, Integer> counts = textFile
+//		    .flatMap(s -> Arrays.asList(s.split(" ")).iterator())
+//		    .mapToPair(word -> new Tuple2<>(word, 1))
+//		    .reduceByKey((a, b) -> a + b);
+//		counts.coalesce(1).saveAsTextFile(path+"//src//main//resources//LabelCount//");
+//		
+		//1.3 Apply K-Means clustering on data with the default settings on parameter
+		String fullPath =  path+"//src//main//resources//kddcup.data.test.fin";
+		JavaRDD<String> data = sc.textFile(fullPath);
+		JavaRDD<Vector> parsedData = data.map(
+				new Function<String, Vector>() {
+					public Vector call(String s) {
+						String[] sarray = s.split(",");
+						double[] values = new double[sarray.length];
+						for(int i=0; i<sarray.length; i++){
+							values[i] = Double.parseDouble(sarray[i]);
+						}
+						return Vectors.dense(values);
+					}
+				});
+		parsedData.cache();
+		KMeans kmeans = new KMeans();
+		KMeansModel clusters = kmeans.run(parsedData.rdd());
+		System.out.println("Cluster centers:");
+		for(Vector center:clusters.clusterCenters()){
+			System.out.println("Cluster 1: " + center);
+		}
 
 		sc.stop();
 		

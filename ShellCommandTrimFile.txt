@@ -1,0 +1,7 @@
+//Get labels
+awk -F ',' '{print $NF}' kddcup.data.corrected > kddcup.data.label.corrected
+ 
+//Remove non numeric features
+awk -F ',' '{$2=$3=$4=$NF=""; print $0}' kddcup.data.corrected > kddcup.data.test
+tr ' ' ',' <kddcup.data.test > kddcup.data.test.fin
+sed -ie 's/,,,,/,/g' kddcup.data.test.fin
