@@ -9,8 +9,10 @@ import org.apache.spark.mllib.clustering.KMeans;
 import org.apache.spark.mllib.clustering.KMeansModel;
 import org.apache.spark.mllib.linalg.Vector;
 import org.apache.spark.mllib.linalg.Vectors;
+import org.apache.spark.sql.Row;
 
 import scala.Tuple2;
+
 
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaPairRDD;
@@ -19,7 +21,7 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 
-import org.apache.spark.Accumulator;
+import org.apache.spark.Partition;
 import org.apache.spark.SparkConf;
 
 
@@ -33,10 +35,13 @@ class RunSpark{
 //		String AWS_SECRET_ACCESS_KEY = "";
 
 		// local environment (laptop/PC)
-		SparkConf conf = new SparkConf().setAppName("GRUPPE01").setMaster("local[*]");
+		//spark.driver.cores -> Number of cores to use for the driver proces, only in cluster mode
+		SparkConf conf = new SparkConf().setAppName("GRUPPE01").setMaster("local[*]").set("spark.executor.memory", "6g").set("spark.driver.memory", "2g");
+		
 		String path = System.getProperty("user.dir");
 
 		JavaSparkContext sc = new JavaSparkContext(conf);
+		
 		System.out.println(">>>>>>>>>>>>>>>>>> Hello from Spark! <<<<<<<<<<<<<<<<<<<<<<<<<");
 		
 
@@ -54,7 +59,7 @@ class RunSpark{
 //		counts.coalesce(1).saveAsTextFile(path+"//src//main//resources//LabelCount//");
 //		
 		//1.3 Apply K-Means clustering on data with the default settings on parameter
-		String fullPath =  path+"//src//main//resources//kddcup.data.test.fin";
+		String fullPath =  path+"//src//main//resources//kddcup.data_10_percent_corrected.fin";
 		JavaRDD<String> data = sc.textFile(fullPath);
 		JavaRDD<Vector> parsedData = data.map(
 				new Function<String, Vector>() {
@@ -68,20 +73,49 @@ class RunSpark{
 					}
 				});
 		
+		
 		parsedData.cache();
 		KMeans kmeans = new KMeans();
 		KMeansModel clusters = kmeans.run(parsedData.rdd());
-		
 		System.out.println("Cluster centers:");
 		for(Vector center:clusters.clusterCenters()){
-			System.out.println("Cluster 1: " + center);
+			System.out.println("Cluster: " + center);
 		}
-		//TODO Heap exception !!!
-		List<Vector> points = parsedData.collect();
-		for(Vector point: points){
-			System.out.println("Cluster: " + clusters.predict(point) + " " + point.toString());
-		}
-		sc.stop();
+		
+		
+//		System.out.println(">>>>>>>>>>>>>>>>>> Number of Elements: " + parsedData.count() + " <<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n");
+//		System.out.println(">>>>>>>>>>>>>>>>>> Before Collect <<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n");
+//		
+//		List<Partition> partitionList = parsedData.coalesce(100000,true).partitions();
+//		System.out.println(">>>>>>>>>>>>>>>>>> Number of Partitions: " + partitionList.size() + " <<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n");
+//		
+//		for(Partition part: partitionList){
+//			int idx = part.index();
+//			JavaRDD<Vector> partRdd = parsedData.mapPartitionsWithIndex(new Function2<Integer, Iterator<Vector>, Iterator<Vector>>(
+//					) {
+//						@Override
+//						public Iterator<Vector> call(Integer v1, Iterator<Vector> v2) throws Exception {
+//							if(v2.hasNext()){
+//								v2.next();
+//								return v2;
+//							}else{
+//								return v2;
+//							}
+//						}
+//			} , true);
+//			partRdd.cache();
+//			List<Vector> list = partRdd.collect();
+//			System.out.println(">>>>>>>>>>>>>>>>>> Number of CollectElements of "+idx+": " + list.size() + " <<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n");
+//		}
+		//parsedData.zipWithIndex().filter((Tuple2<Row,Long> v1) -> v1._2 >= 0 && v1._2 < 1);
+
+//		Iterator<Vector>iterator = parsedData.toLocalIterator();
+//		while(iterator.hasNext()){
+//			System.out.println("Cluster: " + clusters.predict(iterator.next()) + " " + iterator.next().toString());
+//		}
+		System.out.println(">>>>>>>>>>>>>>>>>> After Collect <<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n");
+		
+		sc.close();
 		
 		
 	}
