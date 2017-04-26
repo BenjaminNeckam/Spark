@@ -1,4 +1,0 @@
-target
-derby.log
-metastore_db/
-src/main/resources/kddcup.data.test.fin
