@@ -68,12 +68,21 @@ class RunSpark{
 					}
 				});
 		parsedData.cache();
-		KMeans kmeans = new KMeans();
-		KMeansModel clusters = kmeans.run(parsedData.rdd());
+		// Cluster the data into two classes using KMeans
+		int numClusters = 2;
+		int numIterations = 20;
+		KMeansModel clusters = KMeans.train(parsedData.rdd(), numClusters, numIterations);
+
 		System.out.println("Cluster centers:");
-		for(Vector center:clusters.clusterCenters()){
-			System.out.println("Cluster 1: " + center);
+		for (Vector center: clusters.clusterCenters()) {
+		  System.out.println(" " + center);
 		}
+		double cost = clusters.computeCost(parsedData.rdd());
+		System.out.println("Cost: " + cost);
+
+		// Evaluate clustering by computing Within Set Sum of Squared Errors
+		double WSSSE = clusters.computeCost(parsedData.rdd());
+		System.out.println("Within Set Sum of Squared Errors = " + WSSSE);
 
 		sc.stop();
 		
