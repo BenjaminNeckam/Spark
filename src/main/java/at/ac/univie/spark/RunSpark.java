@@ -67,17 +67,34 @@ class RunSpark{
 						return Vectors.dense(values);
 					}
 				});
+		
 		parsedData.cache();
 		KMeans kmeans = new KMeans();
 		KMeansModel clusters = kmeans.run(parsedData.rdd());
+		
 		System.out.println("Cluster centers:");
 		for(Vector center:clusters.clusterCenters()){
 			System.out.println("Cluster 1: " + center);
 		}
-
+		//TODO Heap exception !!!
+		List<Vector> points = parsedData.collect();
+		for(Vector point: points){
+			System.out.println("Cluster: " + clusters.predict(point) + " " + point.toString());
+		}
 		sc.stop();
 		
 		
+	}
+	
+	public double euclidianDist(Vector point){
+		double[] dPoint = point.toArray();
+		double sum = 0;
+		for(int i=0;i<dPoint.length;i++){
+			//-Centroid is missing
+			sum+=Math.pow(dPoint[i], 2);
+		}
+		double dist=(double)Math.sqrt(sum);
+		return dist;
 	}
 
 }
