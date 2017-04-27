@@ -115,7 +115,20 @@ class RunSpark{
 		    }
 		    
 		    //JavaPairRDD<Integer,Double> rdd = sc.parallelizePairs(listDist);
+		    JavaRDD<Tuple2<Integer, Double>> avrg = distance.join(count).map(new Function<Tuple2<Integer,Tuple2<Double,Integer>>, Tuple2<Integer,Double>>() {
+
+				@Override
+				public Tuple2<Integer, Double> call(Tuple2<Integer, Tuple2<Double, Integer>> v1) throws Exception {
+					double avrg = v1._2._1/v1._2._2;
+					return new Tuple2<Integer,Double>(v1._1,avrg);
+				}
+		    	
+			});
 		    
+		    List<Tuple2<Integer, Double>> listAvrg = avrg.collect();
+		    for(Tuple2<Integer, Double> tuple : listAvrg){
+				System.out.println(">>>>>>>>>>>>>>> AverageList: " + tuple.toString() + "<<<<<<<<<<<<<<");
+			}
 		sc.close();
 		
 		
