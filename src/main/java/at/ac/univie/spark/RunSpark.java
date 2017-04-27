@@ -44,7 +44,6 @@ class RunSpark{
 		
 		System.out.println(">>>>>>>>>>>>>>>>>> Hello from Spark! <<<<<<<<<<<<<<<<<<<<<<<<<");
 		
-
 //  ...example accessing S3:
 
 
@@ -76,59 +75,52 @@ class RunSpark{
 		
 		parsedData.cache();
 		KMeans kmeans = new KMeans();
-		KMeansModel clusters = kmeans.run(parsedData.rdd());
+		final KMeansModel clusters = kmeans.run(parsedData.rdd());
 		System.out.println("Cluster centers:");
 		for(Vector center:clusters.clusterCenters()){
 			System.out.println("Cluster: " + center);
 		}
+		final Vector[] centers=clusters.clusterCenters();
 		
+		JavaPairRDD<Integer, Double> clusterDistance = parsedData.mapToPair(
+		        new PairFunction<Vector, Integer, Double> () {
+		          public Tuple2<Integer, Double> call(Vector vector) throws Exception{
+		            int cluster = clusters.predict(vector);
+		            double dist = Math.sqrt(Vectors.sqdist(vector,centers[cluster]));
+		            return new Tuple2<Integer, Double>(cluster, dist);
+		          }
+		        }
+		    );
 		
-//		System.out.println(">>>>>>>>>>>>>>>>>> Number of Elements: " + parsedData.count() + " <<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n");
-//		System.out.println(">>>>>>>>>>>>>>>>>> Before Collect <<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n");
-//		
-//		List<Partition> partitionList = parsedData.coalesce(100000,true).partitions();
-//		System.out.println(">>>>>>>>>>>>>>>>>> Number of Partitions: " + partitionList.size() + " <<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n");
-//		
-//		for(Partition part: partitionList){
-//			int idx = part.index();
-//			JavaRDD<Vector> partRdd = parsedData.mapPartitionsWithIndex(new Function2<Integer, Iterator<Vector>, Iterator<Vector>>(
-//					) {
-//						@Override
-//						public Iterator<Vector> call(Integer v1, Iterator<Vector> v2) throws Exception {
-//							if(v2.hasNext()){
-//								v2.next();
-//								return v2;
-//							}else{
-//								return v2;
-//							}
-//						}
-//			} , true);
-//			partRdd.cache();
-//			List<Vector> list = partRdd.collect();
-//			System.out.println(">>>>>>>>>>>>>>>>>> Number of CollectElements of "+idx+": " + list.size() + " <<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n");
-//		}
-		//parsedData.zipWithIndex().filter((Tuple2<Row,Long> v1) -> v1._2 >= 0 && v1._2 < 1);
-
-//		Iterator<Vector>iterator = parsedData.toLocalIterator();
-//		while(iterator.hasNext()){
-//			System.out.println("Cluster: " + clusters.predict(iterator.next()) + " " + iterator.next().toString());
-//		}
-		System.out.println(">>>>>>>>>>>>>>>>>> After Collect <<<<<<<<<<<<<<<<<<<<<<<<<\n\n\n");
+		JavaPairRDD<Integer,Double> distance = clusterDistance.reduceByKey((a,b) -> a+b);
+		List<Tuple2<Integer,Double>> listDist = distance.collect();
+		for(Tuple2<Integer,Double> tuple : listDist){
+			System.out.println(">>>>>>>>>>>>>>> Sum distance per Center: " + tuple.toString() + "<<<<<<<<<<<<<<");
+		}
 		
+		JavaPairRDD<Integer, Integer> clusterCount = parsedData.mapToPair(
+		        new PairFunction<Vector, Integer, Integer> () {
+		          public Tuple2<Integer, Integer> call(Vector vector) throws Exception{
+		            return new Tuple2<Integer, Integer>(clusters.predict(vector), 1);
+		          }
+		        }      
+		    );
+		    
+		    JavaPairRDD<Integer, Integer> count = clusterCount.reduceByKey((a, b) -> a + b);
+		    
+		    List<Tuple2<Integer,Integer>> idx = count.collect();
+		    for(Tuple2<Integer,Integer> tuple : idx){
+		    	System.out.println(">>>>>>>>>>>>>>> Elements per Center: " + tuple.toString() + "<<<<<<<<<<<<<<");
+		    	
+		    }
+		    
+		    //JavaPairRDD<Integer,Double> rdd = sc.parallelizePairs(listDist);
+		    
 		sc.close();
 		
 		
 	}
 	
-	public double euclidianDist(Vector point){
-		double[] dPoint = point.toArray();
-		double sum = 0;
-		for(int i=0;i<dPoint.length;i++){
-			//-Centroid is missing
-			sum+=Math.pow(dPoint[i], 2);
-		}
-		double dist=(double)Math.sqrt(sum);
-		return dist;
-	}
+	
 
 }
