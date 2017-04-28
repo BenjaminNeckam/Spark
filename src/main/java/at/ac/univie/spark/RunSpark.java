@@ -1,139 +1,183 @@
 package at.ac.univie.spark;
 
 import org.apache.spark.api.java.JavaSparkContext;
-import org.apache.spark.api.java.function.FlatMapFunction;
 import org.apache.spark.api.java.function.Function;
-import org.apache.spark.api.java.function.Function2;
 import org.apache.spark.api.java.function.PairFunction;
+import org.apache.spark.api.java.function.VoidFunction;
 import org.apache.spark.mllib.clustering.KMeans;
 import org.apache.spark.mllib.clustering.KMeansModel;
 import org.apache.spark.mllib.linalg.Vector;
 import org.apache.spark.mllib.linalg.Vectors;
-import org.apache.spark.sql.Row;
+
+import org.apache.spark.util.LongAccumulator;
 
 import scala.Tuple2;
-
 
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaPairRDD;
 
 import java.util.Arrays;
-import java.util.Iterator;
+
 import java.util.List;
 
-import org.apache.spark.Partition;
 import org.apache.spark.SparkConf;
 
 
-class RunSpark{
+class RunSpark {
 
-	public static void main(String [] args)
-	{
+	public static void main(String[] args) {
 		// on AWS:
 		// SparkConf conf = new SparkConf().setAppName("GRUPPE01");
-//		String AWS_ACCESS_KEY_ID = "";
-//		String AWS_SECRET_ACCESS_KEY = "";
+		// String AWS_ACCESS_KEY_ID = "";
+		// String AWS_SECRET_ACCESS_KEY = "";
 
 		// local environment (laptop/PC)
-		//spark.driver.cores -> Number of cores to use for the driver proces, only in cluster mode
-		SparkConf conf = new SparkConf().setAppName("GRUPPE01").setMaster("local[*]").set("spark.executor.memory", "6g").set("spark.driver.memory", "2g");
-		
+		// spark.driver.cores -> Number of cores to use for the driver process,
+		// only in cluster mode
+		SparkConf conf = new SparkConf().setAppName("GRUPPE01").setMaster("local[*]").set("spark.executor.memory", "6g")
+				.set("spark.driver.memory", "2g");
 		String path = System.getProperty("user.dir");
+		//RunSpark.initLocal(conf, path);
 
+		// ...example accessing S3:
+
+		// clusterMembers.saveAsTextFile("s3n://" + AWS_ACCESS_KEY_ID + ":" +
+		// AWS_SECRET_ACCESS_KEY + "@qltrail-lab-265-1488270472/result");
+
+		RunSpark.getLabels(conf, path);
+		RunSpark.kMeansClusteringDefault(conf, path);
+		RunSpark.kMeansClustering(conf, path, 10);
+
+		
+
+	}
+
+	public static void getLabels(SparkConf conf, String path) {
+		// 1.2 List the clustering labels (last column) and their distinct
 		JavaSparkContext sc = new JavaSparkContext(conf);
-		
-		System.out.println(">>>>>>>>>>>>>>>>>> Hello from Spark! <<<<<<<<<<<<<<<<<<<<<<<<<");
-		
-//  ...example accessing S3:
+		JavaRDD<String> textFile = sc.textFile(path + "//src//main//resources//kddcup.data.label.corrected");
+		long startTime = System.nanoTime();      
+		JavaPairRDD<String, Integer> counts = textFile.flatMap(s -> Arrays.asList(s.split(" ")).iterator())
+				.mapToPair(word -> new Tuple2<>(word, 1)).reduceByKey((a, b) -> a + b);
+		double estimatedTime = (System.nanoTime() - startTime)/ 1000000000.0;
+		List<Tuple2<String, Integer>> lableList = counts.collect();
+		System.out.println("\n\n>>>>>>>>>>>>>>>>>>>>>>>>> Clustering Labels <<<<<<<<<<<<<<<<<<<<<<<<<\n");
+		for (Tuple2<String, Integer> label : lableList) {
+			System.out.println(label.toString());
+		}
+		System.out.println("\nElapsed Time: " + estimatedTime + " seconds");
+		System.out.println("\n>>>>>>>>>>>>>>>>>>>>>>>>> Clustering Labels <<<<<<<<<<<<<<<<<<<<<<<<<\n\n");
+		sc.close();
+	}
 
+	public static void kMeansClustering(SparkConf conf, String path, int k) {
+		JavaSparkContext sc = new JavaSparkContext(conf);
+		LongAccumulator accumSum = sc.sc().longAccumulator();
+		LongAccumulator accumElements = sc.sc().longAccumulator();
 
-//    clusterMembers.saveAsTextFile("s3n://" + AWS_ACCESS_KEY_ID + ":" + AWS_SECRET_ACCESS_KEY + "@qltrail-lab-265-1488270472/result");
-		
-		//1.2 List the clustering labels (last column) and their distinct counts
-//		JavaRDD<String> textFile = sc.textFile(path+"//src//main//resources//kddcup.data.label.corrected");
-//		JavaPairRDD<String, Integer> counts = textFile
-//		    .flatMap(s -> Arrays.asList(s.split(" ")).iterator())
-//		    .mapToPair(word -> new Tuple2<>(word, 1))
-//		    .reduceByKey((a, b) -> a + b);
-//		counts.coalesce(1).saveAsTextFile(path+"//src//main//resources//LabelCount//");
-//		
-		//1.3 Apply K-Means clustering on data with the default settings on parameter
-		String fullPath =  path+"//src//main//resources//kddcup.data_10_percent_corrected.fin";
+		long startTime = System.nanoTime();
+		String fullPath = path + "//src//main//resources//kddcup.data_10_percent_corrected.fin";
 		JavaRDD<String> data = sc.textFile(fullPath);
-		JavaRDD<Vector> parsedData = data.map(
-				new Function<String, Vector>() {
-					public Vector call(String s) {
-						String[] sarray = s.split(",");
-						double[] values = new double[sarray.length];
-						for(int i=0; i<sarray.length; i++){
-							values[i] = Double.parseDouble(sarray[i]);
-						}
-						return Vectors.dense(values);
-					}
-				});
+		JavaRDD<Vector> parsedData = data.map(new Function<String, Vector>() {
+			public Vector call(String s) {
+				String[] sarray = s.split(",");
+				double[] values = new double[sarray.length];
+				for (int i = 0; i < sarray.length; i++) {
+					values[i] = Double.parseDouble(sarray[i]);
+				}
+				return Vectors.dense(values);
+			}
+		});
+
+		parsedData.cache();
+		KMeans kmeans = new KMeans();
+		kmeans.setK(k);
+		kmeans.setRuns(10);
+		kmeans.setEpsilon(1.0e-6);
+		final KMeansModel clusters = kmeans.run(parsedData.rdd());
+		final Vector[] centers = clusters.clusterCenters();
+
+		/**
+		 * mapToPair = Distance from data point to nearest Cluster foreach = Sum
+		 * of all distances and elements
+		 */
+		parsedData.mapToPair(new PairFunction<Vector, Integer, Double>() {
+			public Tuple2<Integer, Double> call(Vector vector) throws Exception {
+				int cluster = clusters.predict(vector);
+				double dist = Math.sqrt(Vectors.sqdist(vector, centers[cluster]));
+				return new Tuple2<Integer, Double>(cluster, dist);
+			}
+		}).foreach(new VoidFunction<Tuple2<Integer, Double>>() {
+
+			@Override
+			public void call(Tuple2<Integer, Double> t) throws Exception {
+				accumSum.add(Math.round(t._2));
+				accumElements.add(1);
+			}
+		});
+		double estimatedTime = (System.nanoTime() - startTime)/ 1000000000.0;
+		System.out.println("\n\n>>>>>>>>>>>>>>>>>>>>>>>>> Quality Score with " + k + " Cluster <<<<<<<<<<<<<<<<<<<<<<<<<\n\n");
+		System.out.println("Score: " + accumSum.value().doubleValue() / accumElements.value());
+		System.out.println("\nElapsed Time: " + estimatedTime + " seconds");
+		System.out.println("\n>>>>>>>>>>>>>>>>>>>>>>>>> Quality Score with " + k + " Cluster <<<<<<<<<<<<<<<<<<<<<<<<<\n\n");
+		sc.close();
+	}
+	
+	public static void kMeansClusteringDefault(SparkConf conf, String path) {
+		JavaSparkContext sc = new JavaSparkContext(conf);
+		LongAccumulator accumSum = sc.sc().longAccumulator();
+		LongAccumulator accumElements = sc.sc().longAccumulator();
 		
-		
+		long startTime = System.nanoTime();
+		String fullPath = path + "//src//main//resources//kddcup.data_10_percent_corrected.fin";
+		JavaRDD<String> data = sc.textFile(fullPath);
+		JavaRDD<Vector> parsedData = data.map(new Function<String, Vector>() {
+			public Vector call(String s) {
+				String[] sarray = s.split(",");
+				double[] values = new double[sarray.length];
+				for (int i = 0; i < sarray.length; i++) {
+					values[i] = Double.parseDouble(sarray[i]);
+				}
+				return Vectors.dense(values);
+			}
+		});
+
 		parsedData.cache();
 		KMeans kmeans = new KMeans();
 		final KMeansModel clusters = kmeans.run(parsedData.rdd());
-		System.out.println("Cluster centers:");
-		for(Vector center:clusters.clusterCenters()){
-			System.out.println("Cluster: " + center);
-		}
-		final Vector[] centers=clusters.clusterCenters();
-		
-		JavaPairRDD<Integer, Double> clusterDistance = parsedData.mapToPair(
-		        new PairFunction<Vector, Integer, Double> () {
-		          public Tuple2<Integer, Double> call(Vector vector) throws Exception{
-		            int cluster = clusters.predict(vector);
-		            double dist = Math.sqrt(Vectors.sqdist(vector,centers[cluster]));
-		            return new Tuple2<Integer, Double>(cluster, dist);
-		          }
-		        }
-		    );
-		
-		JavaPairRDD<Integer,Double> distance = clusterDistance.reduceByKey((a,b) -> a+b);
-		List<Tuple2<Integer,Double>> listDist = distance.collect();
-		for(Tuple2<Integer,Double> tuple : listDist){
-			System.out.println(">>>>>>>>>>>>>>> Sum distance per Center: " + tuple.toString() + "<<<<<<<<<<<<<<");
-		}
-		
-		JavaPairRDD<Integer, Integer> clusterCount = parsedData.mapToPair(
-		        new PairFunction<Vector, Integer, Integer> () {
-		          public Tuple2<Integer, Integer> call(Vector vector) throws Exception{
-		            return new Tuple2<Integer, Integer>(clusters.predict(vector), 1);
-		          }
-		        }      
-		    );
-		    
-		    JavaPairRDD<Integer, Integer> count = clusterCount.reduceByKey((a, b) -> a + b);
-		    
-		    List<Tuple2<Integer,Integer>> idx = count.collect();
-		    for(Tuple2<Integer,Integer> tuple : idx){
-		    	System.out.println(">>>>>>>>>>>>>>> Elements per Center: " + tuple.toString() + "<<<<<<<<<<<<<<");
-		    	
-		    }
-		    
-		    //JavaPairRDD<Integer,Double> rdd = sc.parallelizePairs(listDist);
-		    JavaRDD<Tuple2<Integer, Double>> avrg = distance.join(count).map(new Function<Tuple2<Integer,Tuple2<Double,Integer>>, Tuple2<Integer,Double>>() {
+		final Vector[] centers = clusters.clusterCenters();
 
-				@Override
-				public Tuple2<Integer, Double> call(Tuple2<Integer, Tuple2<Double, Integer>> v1) throws Exception {
-					double avrg = v1._2._1/v1._2._2;
-					return new Tuple2<Integer,Double>(v1._1,avrg);
-				}
-		    	
-			});
-		    
-		    List<Tuple2<Integer, Double>> listAvrg = avrg.collect();
-		    for(Tuple2<Integer, Double> tuple : listAvrg){
-				System.out.println(">>>>>>>>>>>>>>> AverageList: " + tuple.toString() + "<<<<<<<<<<<<<<");
+		/**
+		 * mapToPair = Distance from data point to nearest Cluster foreach = Sum
+		 * of all distances and elements
+		 */
+		parsedData.mapToPair(new PairFunction<Vector, Integer, Double>() {
+			public Tuple2<Integer, Double> call(Vector vector) throws Exception {
+				int cluster = clusters.predict(vector);
+				double dist = Math.sqrt(Vectors.sqdist(vector, centers[cluster]));
+				return new Tuple2<Integer, Double>(cluster, dist);
 			}
+		}).foreach(new VoidFunction<Tuple2<Integer, Double>>() {
+
+			@Override
+			public void call(Tuple2<Integer, Double> t) throws Exception {
+				accumSum.add(Math.round(t._2));
+				accumElements.add(1);
+			}
+		});
+		double estimatedTime = (System.nanoTime() - startTime)/ 1000000000.0;
+		System.out.println("\n\n>>>>>>>>>>>>>>>>>>>>>>>>> Quality Score with default Settings <<<<<<<<<<<<<<<<<<<<<<<<<\n\n");
+		System.out.println("Score: " + accumSum.value().doubleValue() / accumElements.value());
+		System.out.println("\nElapsed Time: " + estimatedTime + " seconds");
+		System.out.println("\n>>>>>>>>>>>>>>>>>>>>>>>>> Quality Score with default Settings <<<<<<<<<<<<<<<<<<<<<<<<<\n\n");
 		sc.close();
-		
-		
 	}
 	
-	
+	public static void initLocal(SparkConf conf, String path){
+		conf = new SparkConf().setAppName("GRUPPE01").setMaster("local[*]").set("spark.executor.memory", "6g")
+				.set("spark.driver.memory", "2g");
+		path = System.getProperty("user.dir");
+		System.out.println("\n>>>>>>>>>>>>>>>>>>>>>>>>> Hello from Spark in local mode <<<<<<<<<<<<<<<<<<<<<<<<<\n");
+	}
 
 }
