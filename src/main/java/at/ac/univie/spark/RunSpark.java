@@ -26,36 +26,31 @@ import org.apache.spark.SparkConf;
 class RunSpark {
 
 	public static void main(String[] args) {
-		// on AWS:
-		// SparkConf conf = new SparkConf().setAppName("GRUPPE01");
-		// String AWS_ACCESS_KEY_ID = "";
-		// String AWS_SECRET_ACCESS_KEY = "";
-
-		// local environment (laptop/PC)
-		// spark.driver.cores -> Number of cores to use for the driver process,
-		// only in cluster mode
-		SparkConf conf = new SparkConf().setAppName("GRUPPE01").setMaster("local[*]").set("spark.executor.memory", "6g")
-				.set("spark.driver.memory", "2g");
-		String path = System.getProperty("user.dir");
-		//RunSpark.initLocal(conf, path);
-
-		// ...example accessing S3:
-
-		// clusterMembers.saveAsTextFile("s3n://" + AWS_ACCESS_KEY_ID + ":" +
-		// AWS_SECRET_ACCESS_KEY + "@qltrail-lab-265-1488270472/result");
-
-		RunSpark.getLabels(conf, path);
-		RunSpark.kMeansClusteringDefault(conf, path);
-		RunSpark.kMeansClustering(conf, path, 10);
-
+		SparkConf conf = new SparkConf();
+		//String path = System.getProperty("user.dir");
 		
+		
+		if(args[0].equals("local")){
+			RunSpark.initLocal(conf);
+			if(args[1].equals("label")){
+				String path = args[2];
+				RunSpark.getLabels(conf, path);
+			}else if(args[1].equals("defaultKMeans")){
+				String path = args[2];
+				RunSpark.kMeansClusteringDefault(conf, path);
+			}else if(args[1].equals("KMeans")){
+				String path = args[3];
+				RunSpark.kMeansClustering(conf, path, Integer.parseInt(args[2]));
+			}
+		}
 
 	}
 
 	public static void getLabels(SparkConf conf, String path) {
 		// 1.2 List the clustering labels (last column) and their distinct
 		JavaSparkContext sc = new JavaSparkContext(conf);
-		JavaRDD<String> textFile = sc.textFile(path + "//src//main//resources//kddcup.data.label.corrected");
+//		JavaRDD<String> textFile = sc.textFile(path + "//src//main//resources//kddcup.data.label.corrected");
+		JavaRDD<String> textFile = sc.textFile(path);
 		long startTime = System.nanoTime();      
 		JavaPairRDD<String, Integer> counts = textFile.flatMap(s -> Arrays.asList(s.split(" ")).iterator())
 				.mapToPair(word -> new Tuple2<>(word, 1)).reduceByKey((a, b) -> a + b);
@@ -76,8 +71,8 @@ class RunSpark {
 		LongAccumulator accumElements = sc.sc().longAccumulator();
 
 		long startTime = System.nanoTime();
-		String fullPath = path + "//src//main//resources//kddcup.data_10_percent_corrected.fin";
-		JavaRDD<String> data = sc.textFile(fullPath);
+		//String fullPath = path + "//src//main//resources//kddcup.data_10_percent_corrected.fin";
+		JavaRDD<String> data = sc.textFile(path);
 		JavaRDD<Vector> parsedData = data.map(new Function<String, Vector>() {
 			public Vector call(String s) {
 				String[] sarray = s.split(",");
@@ -92,7 +87,8 @@ class RunSpark {
 		parsedData.cache();
 		KMeans kmeans = new KMeans();
 		kmeans.setK(k);
-		kmeans.setRuns(10);
+		kmeans.setMaxIterations(10);
+		//kmeans.setRuns(10);
 		kmeans.setEpsilon(1.0e-6);
 		final KMeansModel clusters = kmeans.run(parsedData.rdd());
 		final Vector[] centers = clusters.clusterCenters();
@@ -103,9 +99,9 @@ class RunSpark {
 		 */
 		parsedData.mapToPair(new PairFunction<Vector, Integer, Double>() {
 			public Tuple2<Integer, Double> call(Vector vector) throws Exception {
-				int cluster = clusters.predict(vector);
-				double dist = Math.sqrt(Vectors.sqdist(vector, centers[cluster]));
-				return new Tuple2<Integer, Double>(cluster, dist);
+				int clusterOfPoint = clusters.predict(vector);
+				double dist = Math.sqrt(Vectors.sqdist(vector, centers[clusterOfPoint]));
+				return new Tuple2<Integer, Double>(clusterOfPoint, dist);
 			}
 		}).foreach(new VoidFunction<Tuple2<Integer, Double>>() {
 
@@ -129,8 +125,8 @@ class RunSpark {
 		LongAccumulator accumElements = sc.sc().longAccumulator();
 		
 		long startTime = System.nanoTime();
-		String fullPath = path + "//src//main//resources//kddcup.data_10_percent_corrected.fin";
-		JavaRDD<String> data = sc.textFile(fullPath);
+//		String fullPath = path + "//src//main//resources//kddcup.data_10_percent_corrected.fin";
+		JavaRDD<String> data = sc.textFile(path);
 		JavaRDD<Vector> parsedData = data.map(new Function<String, Vector>() {
 			public Vector call(String s) {
 				String[] sarray = s.split(",");
@@ -153,9 +149,9 @@ class RunSpark {
 		 */
 		parsedData.mapToPair(new PairFunction<Vector, Integer, Double>() {
 			public Tuple2<Integer, Double> call(Vector vector) throws Exception {
-				int cluster = clusters.predict(vector);
-				double dist = Math.sqrt(Vectors.sqdist(vector, centers[cluster]));
-				return new Tuple2<Integer, Double>(cluster, dist);
+				int clusterOfPoint = clusters.predict(vector);
+				double dist = Math.sqrt(Vectors.sqdist(vector, centers[clusterOfPoint]));
+				return new Tuple2<Integer, Double>(clusterOfPoint, dist);
 			}
 		}).foreach(new VoidFunction<Tuple2<Integer, Double>>() {
 
@@ -173,11 +169,25 @@ class RunSpark {
 		sc.close();
 	}
 	
-	public static void initLocal(SparkConf conf, String path){
-		conf = new SparkConf().setAppName("GRUPPE01").setMaster("local[*]").set("spark.executor.memory", "6g")
+	public static void initLocal(SparkConf conf){
+		conf.setAppName("GRUPPE01").setMaster("local[*]").set("spark.executor.memory", "6g")
 				.set("spark.driver.memory", "2g");
-		path = System.getProperty("user.dir");
 		System.out.println("\n>>>>>>>>>>>>>>>>>>>>>>>>> Hello from Spark in local mode <<<<<<<<<<<<<<<<<<<<<<<<<\n");
+	}
+	
+	public static void initEMR(SparkConf conf){
+		// on AWS:
+				// SparkConf conf = new SparkConf().setAppName("GRUPPE01");
+				// String AWS_ACCESS_KEY_ID = "";
+				// String AWS_SECRET_ACCESS_KEY = "";
+		
+		// ...example accessing S3:
+
+				// clusterMembers.saveAsTextFile("s3n://" + AWS_ACCESS_KEY_ID + ":" +
+				// AWS_SECRET_ACCESS_KEY + "@qltrail-lab-265-1488270472/result");
+		
+		// spark.driver.cores -> Number of cores to use for the driver process,
+				// only in cluster mode
 	}
 
 }
